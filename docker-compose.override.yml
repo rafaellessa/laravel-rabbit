@@ -1,0 +1,48 @@
+version: "3.7"
+services:
+
+  app_laravel:
+    build:
+      context: app_laravel
+      dockerfile: Dockerfile
+    volumes:
+    - ./app_laravel/code:/var/www/html
+
+  smee:
+   build:
+     context: smee
+     dockerfile: Dockerfile
+
+  hcontrol-mongo:
+    ports:
+      - "27017:27017"
+
+  hcontrol-mysql:
+    volumes:
+      - hcontrol-mysql-volume:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+  send-email-verification-worker:
+    image: rafaellessa/php_7-3_apache
+    volumes:
+      - code-worker-app-laravel:/var/www/html
+
+
+  hcontrol-rabbit-worker:
+    image: rafaellessa/php_7-3_apache
+    volumes:
+      - code-worker-app-laravel:/var/www/html
+
+
+volumes:
+
+  hcontrol-mysql-volume:
+    driver: local
+
+  code-worker-app-laravel:
+    driver: local
+    driver_opts:
+      type: none
+      device: $PWD/app_laravel/code/
+      o: bind

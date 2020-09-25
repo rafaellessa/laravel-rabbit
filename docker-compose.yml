@@ -1,0 +1,296 @@
+version: "3.7"
+services:
+
+  app_laravel:
+    image: app_laravel
+    working_dir: /var/www/html
+    container_name: app_laravel
+    networks:
+      - rede-hcontrol
+    ports:
+      - ${LOGIN_API_HTTP_PORT:-8081}:80
+    depends_on:
+      - "hcontrol-redis"
+      - "hcontrol-mongo"
+    environment:
+      # Apache
+      APACHE_DOCUMENT_ROOT: /var/www/html/public
+      APP_ENV: ${APP_ENV}
+
+      # XDebug
+      XDEBUG_CONFIG: remote_host=host.docker.internal remote_autostart=1 remote_handler=dbgp
+
+      #SENDGRID
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+
+      BROADCAST_DRIVER: redis
+      CACHE_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      SESSION_LIFETIME: 120
+      REDIS_CLIENT: predis
+
+      DB_CONNECTION: mysql
+
+      # Rabbit MQ
+      RABBITMQ_HOST: hcontorl-rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+
+      # Mongo
+      MONGODB_HOST: hcontrol-mongo
+      MONGODB_PORT: 27017
+      MONGODB_DATABASE: hcontrol_db
+      MONGODB_USERNAME: ${MONGODB_USERNAME}
+      MONGODB_PASSWORD: ${MONGODB_PASSWORD}
+
+      #Mysql
+      DB_HOST: hcontrol-mysql
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: app#098
+      DB_DATABASE: hcontrol_db
+
+      # Redis
+      REDIS_HOST: hcontrol-redis
+      REDIS_PORT: 6379
+      REDIS_CACHE_DB: 0
+      REDIS_DB: 0
+      REDIS_PREFIX: "CacheHcontrol:"
+      CACHE_PREFIX: "APP:"
+      REDIS_QUEUE: queue_hcontrol
+
+      #Laravel
+      APP_NAME: Laravel
+      APP_KEY: base64:FSFkzmeTptL+cjwjV/FF+UuDRZOBCXVbZjrTncrVqSI:=
+      APP_URL: http://localhost
+      APP_DEBUG: ${APP_DEBUG}
+
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "2"
+        max-size: "10m"
+
+    restart: always
+
+  # Rabbit MQ
+  hcontrol-rabbitmq:
+    image: rabbitmq:3.8-management-alpine
+    # O hostname é definido unicamente pois o RabbitMQ monta a pasta storage
+    # utilizando o hostname, então para manter os dados persistentes precisa
+    # manter o nome da pasta
+    hostname: rabbit
+    environment:
+      RABBITMQ_NODENAME: hcontrol
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    networks:
+      - "rede-hcontrol"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: unless-stopped
+
+  hcontrol-redis:
+    image: redis
+    container_name: hcontrol-redis
+    networks:
+      - rede-hcontrol
+
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "2"
+        max-size: "10m"
+
+    restart: always
+
+  hcontrol-mongo:
+    image: mongo:4.2
+    container_name: hcontrol-mongo
+    networks:
+      - rede-hcontrol
+    volumes:
+      - mongodb:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: hcontrol_db
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD}
+
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "2"
+        max-size: "10m"
+
+    restart: always
+
+  hcontrol-mysql:
+    image: mysql:5.7
+    ports:
+      - "3306:3306"
+    networks:
+      - rede-hcontrol
+    container_name: hcontrol-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: app#098
+      MYSQL_DATABASE: hcontrol_db
+
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "2"
+        max-size: "10m"
+
+    restart: always
+
+  send-email-verification-worker:
+    environment:
+      # Laravel
+      APP_KEY: "base64:Tfc6CTNjcgnxO0IYSXZx7PmEky0CqynxA7ju9nJEURE="
+      APP_DEBUG: "true"
+      BROADCAST_DRIVER: redis
+      CACHE_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      SESSION_LIFETIME: 120
+      REDIS_CLIENT: predis
+      QUEUE_FAILED_DRIVER: redis
+
+      # Mongo
+      MONGODB_HOST: hcontrol-mongo
+      MONGODB_PORT: 27017
+      MONGODB_DATABASE: hcontrol_db
+      MONGODB_USERNAME: ${MONGODB_USERNAME}
+      MONGODB_PASSWORD: ${MONGODB_PASSWORD}
+
+      #Mysql
+      DB_HOST: hcontrol-mysql
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: app#098
+      DB_DATABASE: hcontrol_db
+
+      # Redis
+      REDIS_HOST: hcontrol-redis
+      REDIS_PORT: 6379
+      REDIS_CACHE_DB: 0
+      REDIS_DB: 0
+      REDIS_PREFIX: "CacheHcontrol:"
+      CACHE_PREFIX: "APP:"
+      REDIS_QUEUE: queue_hcontrol
+
+      #SENDGRID
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+
+      # Apache
+      APACHE_DOCUMENT_ROOT: /var/www/html/public
+
+      # XDebug
+      XDEBUG_CONFIG: remote_host=host.docker.internal remote_autostart=1 remote_handler=dbgp
+
+    working_dir: /var/www/html/
+    command: [ "php", "artisan", "queue:listen", "--queue=email.send" ]
+    depends_on:
+      - "app_laravel"
+    networks:
+      - rede-hcontrol
+
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "2"
+        max-size: "10m"
+
+    restart: always
+
+  # Auditoria Worker - Le os logs FaciLoca
+  hcontrol-rabbit-worker:
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "2"
+        max-size: "10m"
+    environment:
+      # Laravel
+      APP_KEY: "base64:Tfc6CTNjcgnxO0IYSXZx7PmEky0CqynxA7ju9nJEURE="
+      APP_DEBUG: "true"
+      BROADCAST_DRIVER: redis
+      CACHE_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      SESSION_LIFETIME: 120
+      REDIS_CLIENT: predis
+      QUEUE_FAILED_DRIVER: redis
+
+      # Redis
+      REDIS_HOST: hcontrol-redis
+      REDIS_PORT: 6379
+      REDIS_CACHE_DB: 0
+      REDIS_DB: 0
+      REDIS_PREFIX: "CacheHcontrol:"
+      CACHE_PREFIX: "APP:"
+      REDIS_QUEUE: queue_hcontrol
+
+      # Rabbit MQ
+      RABBITMQ_HOST: hcontorl-rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+
+      # Mongo
+      MONGODB_HOST: hcontrol-mongo
+      MONGODB_PORT: 27017
+      MONGODB_DATABASE: hcontrol_db
+      MONGODB_USERNAME: ${MONGODB_USERNAME}
+      MONGODB_PASSWORD: ${MONGODB_PASSWORD}
+
+      # Apache
+      APACHE_DOCUMENT_ROOT: /var/www/html/public
+
+      # XDebug
+      XDEBUG_CONFIG: remote_host=host.docker.internal remote_autostart=1 remote_handler=dbgp
+
+    working_dir: /var/www/html/
+    entrypoint: /usr/local/bin/php
+    command: [ "artisan", "rabbit:start" ]
+    depends_on:
+      - hcontrol-rabbitmq
+      - hcontrol-mongo
+      - hcontrol-redis
+      - app_laravel
+    networks:
+      - rede-hcontrol
+    restart: unless-stopped
+
+  smee-client:
+    image: rafaellessa/smee
+    container_name: smee-client
+    command: -u https://smee.io/${SMEE_HASH} -t http://app_laravel/api/v1/hook
+    networks:
+      - rede-hcontrol
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "2"
+        max-size: "10m"
+
+    restart: always
+
+volumes:
+  # Mongo DB
+  mongodb:
+    driver: local
+
+  # Rabbit MQ Storage
+  rabbitmq:
+    driver: local
+
+networks:
+  rede-hcontrol:
+    external: true
+

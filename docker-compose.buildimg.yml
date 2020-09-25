@@ -1,0 +1,18 @@
+version: "3.7"
+services:
+
+  app_laravel:
+    build:
+      context: app_laravel
+      dockerfile: buildimg.Dockerfile
+    volumes:
+      - ./app_laravel/code:/var/www/html
+  smee:
+    build:
+      context: smee
+      dockerfile: Dockerfile
+
+  hcontrol-mongo:
+    volumes:
+    - ./mongodb/init-mongo.sh/docker-entrypoint-initdb.d/init-mongo.sh
+
